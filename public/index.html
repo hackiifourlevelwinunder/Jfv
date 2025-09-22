@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Real-time RNG with CSPRNG</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+    #time { font-size: 20px; margin: 10px; }
+    .result { margin: 10px; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <h2>🎲 Real-time RNG with CSPRNG</h2>
+  <div id="time"></div>
+  <div class="result" id="preview"></div>
+  <div class="result" id="final"></div>
+  <h3>History</h3>
+  <ul id="history"></ul>
+
+  <script>
+    function updateClock() {
+      const now = new Date();
+      const secLeft = 60 - now.getSeconds();
+      document.getElementById("time").innerText =
+        now.toLocaleTimeString() + " | Next round in " + secLeft + "s";
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "preview") {
+        document.getElementById("preview").innerText =
+          "Preview Result (35s before): " + msg.data.result + " | Tokens: " + msg.data.tokens.join(",");
+      }
+      if (msg.type === "final") {
+        document.getElementById("final").innerText =
+          "Final Result: " + msg.data.result;
+      }
+      if (msg.type === "history") {
+        const ul = document.getElementById("history");
+        ul.innerHTML = "";
+        msg.history.forEach(h => {
+          const li = document.createElement("li");
+          li.innerText = `${h.result} (${new Date(h.time).toLocaleTimeString()})`;
+          ul.appendChild(li);
+        });
+      }
+    };
+  </script>
+</body>
+</html>
