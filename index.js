@@ -1,72 +1,60 @@
-const express = require("express");
-const http = require("http");
-const WebSocket = require("ws");
-const path = require("path");
-const crypto = require("crypto");
+import express from "express";
+import crypto from "crypto";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const PORT = process.env.PORT || 3000;
 
-app.use(express.static(path.join(__dirname, "public")));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-let history = [];
-let previewRound = null;
-let finalRound = null;
+let tokens = [];        // हर मिनट 25 tokens (0-9)
+let prevResult = null;  // 45s पर दिखेगा
+let finalResult = null; // 00s पर दिखेगा
 
 function generateTokens() {
-  let tokens = [];
+  tokens = [];
   for (let i = 0; i < 25; i++) {
     tokens.push(crypto.randomInt(0, 10)); // 0–9
   }
-  return tokens;
+}
+
+function calculateFrequencyResult() {
+  if (tokens.length === 0) return null;
+  const sum = tokens.reduce((a, b) => a + b, 0);
+  return sum % 10; // final digit
 }
 
 function scheduleRound() {
   const now = new Date();
-  const nextMin = new Date(now.getTime() - now.getSeconds() * 1000 - now.getMilliseconds() + 60000);
+  const sec = now.getSeconds();
 
-  const previewTime = new Date(nextMin.getTime() - 35000); // 35 sec before
-  const finalTime = nextMin;
-
-  // preview
-  setTimeout(() => {
-    const tokens = generateTokens();
-    const sum = tokens.reduce((a, b) => a + b, 0);
-    const result = sum % 10;
-    previewRound = { tokens, result, time: new Date().toISOString() };
-    broadcast({ type: "preview", data: previewRound });
-  }, previewTime - now);
-
-  // final
-  setTimeout(() => {
-    finalRound = previewRound;
-    history.unshift(finalRound);
-    if (history.length > 20) history.pop();
-
-    broadcast({ type: "final", data: finalRound });
-    broadcast({ type: "history", history });
-
-    scheduleRound(); // next round
-  }, finalTime - now);
+  if (sec === 0) {
+    // हर मिनट नई round
+    generateTokens();
+    finalResult = calculateFrequencyResult();
+    prevResult = null;
+  } else if (sec === 45) {
+    // Final से 15 sec पहले दिखेगा
+    prevResult = calculateFrequencyResult();
+  }
 }
 
-function broadcast(msg) {
-  const s = JSON.stringify(msg);
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(s);
-    }
+setInterval(scheduleRound, 1000);
+
+// serve frontend
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/status", (req, res) => {
+  res.json({
+    serverTime: new Date().toISOString(),
+    tokens,
+    prevResult,
+    finalResult,
   });
-}
-
-wss.on("connection", ws => {
-  if (previewRound) ws.send(JSON.stringify({ type: "preview", data: previewRound }));
-  if (finalRound) ws.send(JSON.stringify({ type: "final", data: finalRound }));
-  ws.send(JSON.stringify({ type: "history", history }));
 });
 
-scheduleRound();
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+});
